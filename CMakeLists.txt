@@ -9,6 +9,6 @@ find_package(OpenCV REQUIRED)
 
 include_directories(include)
 
-add_executable(armordetector_final src/main.cpp)
+add_executable(armordetector_final src/main.cpp src/video_capture.cpp)
 
 target_link_libraries(armordetector_final ${OpenCV_LIBS})
