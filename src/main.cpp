@@ -1,5 +1,6 @@
 #include <video_capture.h>
 
+#include <color_detector.h>
 #include <iostream>
 #include <string>
 
@@ -20,6 +21,8 @@ int main(int argc, char** argv)
         return -1;
     }
 
+    ColorDetector detector;
+    std::string color = "red";
     cv::Mat frame;
 
     while(reader.read_frame(frame))
@@ -28,13 +31,25 @@ int main(int argc, char** argv)
         {
             break;
         }
-        cv::imshow("Armor Detection",frame);
+
+        cv::Mat mask = detector.detect(frame, color);
+
+        cv::imshow("Color Mask",mask);
+        cv::imshow("Original",frame);
 
         int key = cv::waitKey(1);
 
         if(key == 27 || key == 'q' || key == 'Q')
         {
             break;
+        }
+        if (key == 'b' || key == 'B')
+        {
+            color = "blue";
+        }
+        if(key == 'r' || key == 'R')
+        {
+            color = "red";
         }
     }
 
