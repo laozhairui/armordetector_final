@@ -14,7 +14,8 @@ add_executable(armordetector_final
     src/video_capture.cpp
     src/color_detector.cpp
     src/contour_detector.cpp
-    src/light_bar_detector.cpp    
+    src/light_bar_detector.cpp
+    src/armor_pair_detector.cpp    
 )
 
 target_link_libraries(armordetector_final ${OpenCV_LIBS})

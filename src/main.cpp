@@ -5,6 +5,8 @@
 #include <contour_detector.h>
 
 #include <light_bar_detector.h>
+
+#include <armor_pair_detector.h>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -29,6 +31,7 @@ int main(int argc, char** argv)
     ColorDetector color_detector;
     ContourDetector contour_detector;
     LightBarDetector light_bar_detector;
+    ArmorPairDetector armor_pair_detector;
     std::string color = "red";
     cv::Mat frame;
 
@@ -55,19 +58,23 @@ int main(int argc, char** argv)
 
         std::vector<LightBar> light_bar = light_bar_detector.detect(contours);
 
-        for (const auto& detected_light_bar : light_bar)
+        std::vector<ArmorPair> armor_pair =
+            armor_pair_detector.detect(light_bar);
+
+        
+        for (const auto& detected_armor_pair : armor_pair)
         {
             cv::Point2f points[4];
-            detected_light_bar.rect.points(points);
+            detected_armor_pair.rect.points(points);
 
-            for(int i = 0; i < 4; ++i)
+            for (int i = 0; i < 4; ++i)
             {
                 cv::line(
-                    contours_view,
-                    points[i],
-                    points[(i + 1) % 4],
-                    cv::Scalar(0, 255, 0),
-                    2
+                contours_view,
+                points[i],
+                points[(i + 1) % 4],
+                cv::Scalar(0, 128, 255),
+                2
                 );
             }
         }
