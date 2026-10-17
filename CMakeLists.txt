@@ -12,7 +12,8 @@ include_directories(include)
 add_executable(armordetector_final
     src/main.cpp 
     src/video_capture.cpp
-    src/color_detector.cpp    
+    src/color_detector.cpp
+    src/contour_detector.cpp    
 )
 
 target_link_libraries(armordetector_final ${OpenCV_LIBS})

@@ -1,8 +1,12 @@
 #include <video_capture.h>
 
 #include <color_detector.h>
+
+#include <contour_detector.h>
+
 #include <iostream>
 #include <string>
+#include <vector>
 
 int main(int argc, char** argv)
 {
@@ -21,7 +25,8 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    ColorDetector detector;
+    ColorDetector color_detector;
+    ContourDetector contour_detector;
     std::string color = "red";
     cv::Mat frame;
 
@@ -32,8 +37,21 @@ int main(int argc, char** argv)
             break;
         }
 
-        cv::Mat mask = detector.detect(frame, color);
+        cv::Mat mask = color_detector.detect(frame, color);
 
+        cv::Mat contours_view = frame.clone();
+
+        std::vector<std::vector<cv::Point>> contours = contour_detector.detect(mask);
+        
+        cv::drawContours(
+            contours_view,
+            contours,
+            -1,
+            cv::Scalar(0, 255, 0),
+            2
+        );
+
+        cv::imshow("Contours",contours_view);
         cv::imshow("Color Mask",mask);
         cv::imshow("Original",frame);
 
