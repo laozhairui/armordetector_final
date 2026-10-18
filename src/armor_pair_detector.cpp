@@ -1,8 +1,10 @@
+
 #include <armor_pair_detector.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 namespace
@@ -23,16 +25,25 @@ namespace
     constexpr double kBlockingInterpolationMin = 0.10;
     constexpr double kBlockingInterpolationMax = 0.90;
 
+    constexpr double kMinTrackDistance = 35.0;
+    constexpr double kTrackDistanceFactor = 1.5;
+    constexpr int kMaxTrackMissedFrames = 3;
+    constexpr int kMaxPairMissedFrames = 3;
+
     struct PairCandidate
     {
         ArmorPair pair;
         double score = 0.0;
     };
 
-    double angle_difference(
-        double first,
-        double second
-    )
+    struct BarMatch
+    {
+        std::size_t previous_index = 0;
+        std::size_t current_index = 0;
+        double cost = 0.0;
+    };
+
+    double angle_difference(double first, double second)
     {
         double difference = std::abs(first - second);
 
@@ -42,6 +53,50 @@ namespace
         }
 
         return std::min(difference, 180.0 - difference);
+    }
+
+    double light_bar_match_cost(
+        const LightBar& previous,
+        const LightBar& current
+    )
+    {
+        double dx =
+            current.rect.center.x - previous.rect.center.x;
+        double dy =
+            current.rect.center.y - previous.rect.center.y;
+
+        double distance = std::sqrt(dx * dx + dy * dy);
+
+        double distance_limit = std::max(
+            kMinTrackDistance,
+            previous.length * kTrackDistanceFactor
+        );
+
+        if (distance > distance_limit)
+        {
+            return -1.0;
+        }
+
+        double length_scale = std::max(previous.length, 1.0);
+        double width_scale = std::max(previous.width, 1.0);
+
+        double length_difference =
+            std::abs(current.length - previous.length) /
+            length_scale;
+
+        double width_difference =
+            std::abs(current.width - previous.width) /
+            width_scale;
+
+        double angle_diff = angle_difference(
+            previous.angle,
+            current.angle
+        );
+
+        return distance / distance_limit +
+            length_difference * 0.5 +
+            width_difference * 0.3 +
+            angle_diff / 90.0;
     }
 
     bool has_blocking_bar(
@@ -140,10 +195,7 @@ namespace
             return false;
         }
 
-        double angle_diff = angle_difference(
-            left.angle,
-            right.angle
-        );
+        double angle_diff = angle_difference(left.angle, right.angle);
 
         if (angle_diff > kMaxAngleDifference)
         {
@@ -175,6 +227,7 @@ namespace
         }
 
         double vertical_difference = std::abs(dy);
+
         double allowed_vertical_difference = std::max(
             kMinVerticalGap,
             average_length * kVerticalGapFactor
@@ -239,9 +292,11 @@ namespace
             center_angle_penalty * 8.0;
 
         ArmorPair pair;
+
         pair.left_index = left_index;
         pair.right_index = right_index;
         pair.score = score;
+
         pair.rect = cv::RotatedRect(
             cv::Point2f(
                 (left.rect.center.x + right.rect.center.x) * 0.5F,
@@ -263,19 +318,186 @@ namespace
 
 std::vector<ArmorPair> ArmorPairDetector::detect(
     const std::vector<LightBar>& light_bar
-) const
+)
 {
+    std::vector<ArmorPair> armor_pair;
+
+    std::vector<std::size_t> current_id(light_bar.size(), 0);
+    std::vector<bool> used_current(light_bar.size(), false);
+    std::vector<bool> used_previous(m_tracked_light_bar.size(), false);
+
+    std::vector<BarMatch> bar_match;
+
+    for (std::size_t previous_index = 0;
+         previous_index < m_tracked_light_bar.size();
+         ++previous_index)
+    {
+        for (std::size_t current_index = 0;
+             current_index < light_bar.size();
+             ++current_index)
+        {
+            double cost = light_bar_match_cost(
+                m_tracked_light_bar[previous_index].light_bar,
+                light_bar[current_index]
+            );
+
+            if (cost < 0.0)
+            {
+                continue;
+            }
+
+            bar_match.push_back({
+                previous_index,
+                current_index,
+                cost
+            });
+        }
+    }
+
+    std::sort(
+        bar_match.begin(),
+        bar_match.end(),
+        [](const BarMatch& first, const BarMatch& second)
+        {
+            return first.cost < second.cost;
+        }
+    );
+
+    for (const BarMatch& match : bar_match)
+    {
+        if (used_previous[match.previous_index] ||
+            used_current[match.current_index])
+        {
+            continue;
+        }
+
+        used_previous[match.previous_index] = true;
+        used_current[match.current_index] = true;
+
+        current_id[match.current_index] =
+            m_tracked_light_bar[match.previous_index].id;
+    }
+
+    std::vector<TrackedLightBar> next_tracked_light_bar;
+
+    for (std::size_t i = 0; i < m_tracked_light_bar.size(); ++i)
+    {
+        if (!used_previous[i])
+        {
+            TrackedLightBar missed = m_tracked_light_bar[i];
+            ++missed.missed_frames;
+
+            if (missed.missed_frames <= kMaxTrackMissedFrames)
+            {
+                next_tracked_light_bar.push_back(missed);
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < light_bar.size(); ++i)
+    {
+        if (current_id[i] == 0)
+        {
+            current_id[i] = m_next_id++;
+        }
+
+        TrackedLightBar tracked;
+        tracked.light_bar = light_bar[i];
+        tracked.id = current_id[i];
+        tracked.missed_frames = 0;
+
+        next_tracked_light_bar.push_back(tracked);
+    }
+
+    m_tracked_light_bar = std::move(next_tracked_light_bar);
+
     std::vector<PairCandidate> pair_candidate;
 
     for (std::size_t i = 0; i < light_bar.size(); ++i)
     {
         for (std::size_t j = i + 1; j < light_bar.size(); ++j)
         {
+            std::size_t left_index = i;
+            std::size_t right_index = j;
+
+            if (light_bar[left_index].rect.center.x >
+                light_bar[right_index].rect.center.x)
+            {
+                std::swap(left_index, right_index);
+            }
+
             PairCandidate candidate;
 
-            if (build_pair_candidate(light_bar, i, j, candidate))
+            if (build_pair_candidate(
+                    light_bar,
+                    left_index,
+                    right_index,
+                    candidate))
             {
                 pair_candidate.push_back(candidate);
+            }
+        }
+    }
+
+    std::vector<bool> used_candidate_bar(light_bar.size(), false);
+    std::vector<LockedPair> next_locked_pair;
+
+    for (LockedPair locked : m_locked_pair)
+    {
+        std::size_t matched_candidate = pair_candidate.size();
+
+        for (std::size_t i = 0; i < pair_candidate.size(); ++i)
+        {
+            const ArmorPair& pair = pair_candidate[i].pair;
+
+            std::size_t left_id = current_id[pair.left_index];
+            std::size_t right_id = current_id[pair.right_index];
+
+            bool same_pair =
+                (left_id == locked.left_id &&
+                 right_id == locked.right_id) ||
+                (left_id == locked.right_id &&
+                 right_id == locked.left_id);
+
+            if (same_pair)
+            {
+                matched_candidate = i;
+                break;
+            }
+        }
+
+        if (matched_candidate != pair_candidate.size())
+        {
+            const ArmorPair& pair =
+                pair_candidate[matched_candidate].pair;
+
+            if (!used_candidate_bar[pair.left_index] &&
+                !used_candidate_bar[pair.right_index])
+            {
+                armor_pair.push_back(pair);
+
+                used_candidate_bar[pair.left_index] = true;
+                used_candidate_bar[pair.right_index] = true;
+
+                locked.missed_frames = 0;
+                next_locked_pair.push_back(locked);
+                continue;
+            }
+        }
+
+        ++locked.missed_frames;
+
+        if (locked.missed_frames <= kMaxPairMissedFrames)
+        {
+            next_locked_pair.push_back(locked);
+
+            for (std::size_t i = 0; i < light_bar.size(); ++i)
+            {
+                if (current_id[i] == locked.left_id ||
+                    current_id[i] == locked.right_id)
+                {
+                    used_candidate_bar[i] = true;
+                }
             }
         }
     }
@@ -289,23 +511,30 @@ std::vector<ArmorPair> ArmorPairDetector::detect(
         }
     );
 
-    std::vector<bool> used_light_bar(light_bar.size(), false);
-    std::vector<ArmorPair> armor_pair;
-
-    for (const auto& candidate : pair_candidate)
+    for (const PairCandidate& candidate : pair_candidate)
     {
         const ArmorPair& pair = candidate.pair;
 
-        if (used_light_bar[pair.left_index] ||
-            used_light_bar[pair.right_index])
+        if (used_candidate_bar[pair.left_index] ||
+            used_candidate_bar[pair.right_index])
         {
             continue;
         }
 
         armor_pair.push_back(pair);
-        used_light_bar[pair.left_index] = true;
-        used_light_bar[pair.right_index] = true;
+
+        used_candidate_bar[pair.left_index] = true;
+        used_candidate_bar[pair.right_index] = true;
+
+        LockedPair locked;
+        locked.left_id = current_id[pair.left_index];
+        locked.right_id = current_id[pair.right_index];
+        locked.missed_frames = 0;
+
+        next_locked_pair.push_back(locked);
     }
+
+    m_locked_pair = std::move(next_locked_pair);
 
     return armor_pair;
 }
