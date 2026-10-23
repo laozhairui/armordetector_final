@@ -1,4 +1,3 @@
-
 #include <armor_pair_detector.h>
 
 #include <algorithm>
@@ -11,14 +10,16 @@ namespace
 {
     constexpr double kMinLengthRatio = 0.50;
     constexpr double kMinWidthRatio = 0.40;
+    constexpr double kMinArmorAspectRatio = 1.0;
+    constexpr double kMaxArmorAspectRatio = 3.5;
     constexpr double kMaxAngleDifference = 22.0;
     constexpr double kMinHorizontalGapRatio = 0.65;
-    constexpr double kMaxHorizontalGapRatio = 4.2;
-    constexpr double kMinVerticalGap = 5.0;
+    constexpr double kMaxHorizontalGapRatio = 4.0;
+    constexpr double kMinVerticalGap = 2.5;
     constexpr double kVerticalGapFactor = 0.70;
     constexpr double kMinAbsoluteDistance = 4.0;
     constexpr double kMinMaxDistance = 20.0;
-    constexpr double kMaxCenterDistanceFactor = 5.0;
+    constexpr double kMaxCenterDistanceFactor = 3.5;
     constexpr double kMinAdaptiveGap = 18.0;
     constexpr double kAdaptiveGapFactor = 4.0;
     constexpr double kMaxAbsoluteGap = 125.0;
@@ -252,6 +253,14 @@ namespace
 
         if (center_distance < min_center_distance ||
             center_distance > max_center_distance)
+        {
+            return false;
+        }
+
+        double armor_aspect_ratio = center_distance / average_length;
+
+        if (armor_aspect_ratio < kMinArmorAspectRatio ||
+            armor_aspect_ratio > kMaxArmorAspectRatio)
         {
             return false;
         }
